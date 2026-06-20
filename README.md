@@ -1,3 +1,197 @@
+# SO-101 机械臂操作手册
+
+> SO-101 双臂系统：黑色臂 Leader（人手操控，7.4V），白色臂 Follower（执行动作，12V）
+
+## 1. 数据转换（IsaacLab → LeRobot）
+
+```bash
+export LEROBOT_HOME=/home/quincylee/code/Robotics/data/arm/transformed
+cd /home/quincylee/code/Robotics/leisaac
+
+python scripts/convert/isaaclab2lerobotv3.py \
+    --task_name=LeIsaac-SO101-PickOrange-v0 \
+    --task_type=keyboard \
+    --repo_id=quincylee/pick_orange_kb \
+    --hdf5_root=/home/quincylee/code/Robotics/data/arm/recorded/pick_orange \
+    --hdf5_files=kb_01.hdf5 \
+    --device=cpu
+```
+
+## 2. 端口与权限
+
+```bash
+ls /dev/ttyACM*                          # 确定端口号
+sudo chmod 666 /dev/ttyACM0              # Leader（黑色）
+sudo chmod 666 /dev/ttyACM1              # Follower（白色）
+```
+
+## 3. 标定
+
+```bash
+# --- 自动标定 ---
+# 黑色臂 Leader（人手操控，7.4V 电源）
+python examples/calibrate/auto_calibrate_example.py \
+    --port /dev/ttyACM0 --device-type tele
+
+# 白色臂 Follower（执行动作，12V 电源）
+python examples/calibrate/auto_calibrate_example.py \
+    --port /dev/ttyACM1 --device-type robot
+
+# --- 手动标定 ---
+lerobot-calibrate \
+    --teleop.type so101_leader --teleop.port /dev/ttyACM0 --teleop.id R07252802
+
+lerobot-calibrate \
+    --robot.type so101_follower --robot.port /dev/ttyACM1 --robot.id R12252802
+```
+
+## 4. 遥操作（协同测试）
+
+```bash
+# 单独测试 Leader
+lerobot-teleoperate \
+    --teleop.type so101_leader --teleop.port /dev/ttyACM0 --teleop.id R07252802
+
+# 单独测试 Follower
+lerobot-teleoperate \
+    --robot.type so101_follower --robot.port /dev/ttyACM1 --robot.id R12252802
+
+# Leader + Follower 协同
+lerobot-teleoperate \
+    --robot.type so101_follower --robot.port /dev/ttyACM1 --robot.id R12252802 \
+    --teleop.type so101_leader --teleop.port /dev/ttyACM0 --teleop.id R07252802
+```
+
+## 5. 相机测试
+
+```bash
+python -c "
+import cv2
+cap = cv2.VideoCapture(0)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+print('按 q 退出')
+while True:
+    ret, frame = cap.read()
+    if not ret: break
+    cv2.imshow('camera', frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'): break
+cap.release()
+cv2.destroyAllWindows()
+"
+```
+
+## 6. 录制数据
+
+```bash
+conda activate lerobot
+cd ~/code/Robotics
+
+lerobot-record \
+    --robot.type=so101_follower \
+    --robot.port=/dev/ttyACM1 \
+    --robot.id=R12252802 \
+    --robot.cameras='{"front":{"type":"opencv","index_or_path":0,"width":640,"height":480,"fps":30,"fourcc":"MJPG"}}' \
+    --teleop.type=so101_leader \
+    --teleop.port=/dev/ttyACM0 \
+    --teleop.id=R07252802 \
+    --dataset.repo_id=quincyyyy/so100_batch1 \
+    --dataset.root=/home/quincylee/code/Robotics/data/arm/recorded/batch1 \
+    --dataset.num_episodes=10 \
+    --dataset.episode_time_s=30 \
+    --dataset.reset_time_s=5 \
+    --dataset.single_task="Pick and place" \
+    --dataset.push_to_hub=false \
+    --display_data=true
+```
+
+## 7. 复现录制动作（可选）
+
+```bash
+conda activate lerobot
+
+lerobot-replay \
+    --robot.type=so101_follower \
+    --robot.port=/dev/ttyACM1 \
+    --robot.id=R12252802 \
+    --dataset.repo_id=quincyyyy/so100_batch1 \
+    --dataset.root=/home/quincylee/code/Robotics/data/arm/recorded/batch1 \
+    --dataset.episode=0
+```
+
+## 8. 训练
+
+### 本地单卡
+
+```bash
+conda activate lerobot
+cd ~/code/Robotics/lerobot
+
+lerobot-train \
+    --dataset.repo_id=quincyyyy/so100_batch1 \
+    --dataset.root=/home/quincylee/code/Robotics/data/arm/recorded/batch1 \
+    --policy.type=smolvla \
+    --policy.device=cuda \
+    --policy.push_to_hub=false \
+    --output_dir=outputs/train/smolvla_batch1 \
+    --job_name=smolvla_batch1 \
+    --batch_size=64 \
+    --steps=20000 \
+    --wandb.enable=false
+```
+
+### V100 多卡
+
+```bash
+conda activate lerobot
+export HF_ENDPOINT=https://hf-mirror.com
+
+accelerate launch \
+  --multi_gpu \
+  --num_processes=4 \
+  -m lerobot.scripts.lerobot_train \
+  --dataset.repo_id=batch1_enlarge \
+  --dataset.root=/home/cxhlab/lqj_code/Arm_data/batch1_enlarge \
+  --policy.path=/home/cxhlab/lqj_code/Robotics/smolvla \
+  --policy.device=cuda \
+  --policy.empty_cameras=2 \
+  --policy.push_to_hub=false \
+  --rename_map='{"observation.images.front": "observation.images.camera1"}' \
+  --output_dir=/home/cxhlab/lqj_code/Robotics/smolvla/outputs/train/batch1_enlarge \
+  --job_name=batch1_enlarge \
+  --batch_size=8 \
+  --steps=10000 \
+  --save_freq=2500 \
+  --log_freq=50
+```
+
+## 9. 推理部署
+
+```bash
+conda activate lerobot
+cd ~/code/Robotics/lerobot
+
+lerobot-rollout \
+    --strategy.type=base \
+    --policy.path=/home/quincylee/code/Robotics/data/models/pretrained_model_JIAXIAOQIU \
+    --inference.type=rtc \
+    --robot.type=so101_follower \
+    --robot.port=/dev/ttyACM1 \
+    --robot.id=R12252802 \
+    --robot.cameras='{"camera1":{"type":"opencv","index_or_path":0,"width":640,"height":480,"fps":30,"fourcc":"MJPG"}}' \
+    --task="Pick and place" \
+    --duration=30
+```
+
+---
+
+
+
+
+
+
+
+
 <p align="center">
   <img alt="LeRobot, Hugging Face Robotics Library" src="./media/readme/lerobot-logo-thumbnail.png" width="100%">
 </p>
