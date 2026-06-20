@@ -496,7 +496,13 @@ def record(
                     events["exit_early"] = False
                     dataset.clear_episode_buffer()
                     continue
-                dataset.save_episode()
+                try:
+                    dataset.save_episode()
+                except ValueError as e:
+                    if "add_frame" in str(e):
+                        logging.warning("Skipping empty episode (pressed Esc during reset).")
+                        continue
+                    raise
                 recorded_episodes += 1
     except Exception as exc:
         primary_error = exc
