@@ -118,6 +118,26 @@ def say(text: str, blocking: bool = False):
         cmd = ["say", text]
 
     elif system == "Linux":
+        # Prefer piper-tts for natural voice; fallback to spd-say
+        model = os.path.expanduser("~/.local/share/piper-voices/en_US-lessac-medium.onnx")
+        if os.path.exists(model):
+            # Use piper Python API for reliable playback
+            try:
+                import wave
+                from piper import PiperVoice
+                voice = PiperVoice.load(model)
+                wav_path = f"/tmp/_lerobot_say_{os.getpid()}.wav"
+                with wave.open(wav_path, "w") as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)
+                    wf.setframerate(voice.config.sample_rate)
+                    for chunk in voice.synthesize(text):
+                        wf.writeframes(chunk.audio_int16_bytes)
+                subprocess.Popen(["aplay", "-q", wav_path])
+                return
+            except Exception:
+                pass  # fall through to spd-say
+
         cmd = ["spd-say", text]
         if blocking:
             cmd.append("--wait")

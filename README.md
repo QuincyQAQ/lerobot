@@ -81,6 +81,9 @@ cv2.destroyAllWindows()
 "
 ```
 
+> 语音已改用 Piper-TTS 自然语音（en_US-lessac-medium），不再用 spd-say 机器人腔。
+> 模型路径: ~/.local/share/piper-voices/en_US-lessac-medium.onnx
+
 ## 6. 录制数据
 
 ```bash
@@ -96,7 +99,7 @@ lerobot-record \
     --teleop.port=/dev/ttyACM0 \
     --teleop.id=R07252802 \
     --dataset.repo_id=quincyyyy/so100_batch1 \
-    --dataset.root=/home/quincylee/code/Robotics/data/arm/recorded/batch1 \
+    --dataset.root=/home/quincylee/code/Robotics/data/arm/recorded/batch2 \
     --dataset.num_episodes=10 \
     --dataset.episode_time_s=30 \
     --dataset.reset_time_s=5 \
